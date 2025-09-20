@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Study Planner + Exam Timetable (Online Class Alerts)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{--bg1:linear-gradient(135deg,#74ebd5,#ACB6E5);--card:#fff;--muted:#666}
+    *{box-sizing:border-box;font-family:Inter,Segoe UI,Arial,sans-serif}
+    body{margin:0;padding:28px;display:flex;justify-content:center;background:var(--bg1);transition:background .4s}
+    .wrap{width:100%;max-width:1000px;}
+    .card{background:var(--card);border-radius:12px;padding:14px;box-shadow:0 8px 28px rgba(0,0,0,.12);margin-bottom:14px;transition:all .25s}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+    h1{margin:0;font-size:20px}
+    .flex{display:flex;gap:10px;align-items:center}
+    input,select,button,textarea{padding:8px;border-radius:8px;border:1px solid #ddd;font-size:14px}
+    input[type="text"]{min-width:120px}
+    .btn{background:#4CAF50;color:#fff;border:none;cursor:pointer}
+    .btn.ghost{background:transparent;border:1px solid rgba(0,0,0,0.06);color:var(--muted)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .task,.exam{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:8px;margin-bottom:8px;transition:transform .15s}
+    .task:hover,.exam:hover{transform:translateY(-4px)}
+    .small{color:var(--muted);font-size:13px}
+    .priority-high{border-left:6px solid #e74c3c;padding-left:8px}
+    .priority-medium{border-left:6px solid #f39c12;padding-left:8px}
+    .priority-low{border-left:6px solid #2ecc71;padding-left:8px}
+    .actions button{background:transparent;border:none;cursor:pointer;margin-left:6px;font-size:16px}
+    .progress-wrap{height:14px;background:#eee;border-radius:10px;overflow:hidden}
+    .progress-bar{height:100%;width:0%;background:#4CAF50;transition:width .4s}
+    .muted{color:var(--muted)}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    .timeline{max-height:300px;overflow:auto;padding:6px;background:rgba(0,0,0,0.02);border-radius:8px}
+    .online-flag{font-size:12px;background:#0ea5e9;color:#fff;padding:4px 6px;border-radius:6px;margin-left:8px}
+    @media(max-width:880px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="card" id="topCard">
+      <div>
+        <h1>📘 Study Planner + Exam Timetable</h1>
+        <div class="small muted">Includes online-class reminders with direct join link (click notification to join).</div>
+      </div>
+      <div class="flex">
+        <button class="btn ghost" id="notifReq">Enable Notifications</button>
+        <select id="themeSelect" title="Theme">
+          <option value="light">🌤 Light</option>
+          <option value="dark">🌑 Dark</option>
+          <option value="ocean">🌊 Ocean</option>
+          <option value="forest">🌲 Forest</option>
+          <option value="sunset">🌅 Sunset</option>
+          <option value="pastel">🎨 Pastel</option>
+        </select>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- Left: Tasks -->
+      <section class="card">
+        <strong>Tasks</strong>
+        <form id="taskForm" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <input type="text" id="taskTitle" placeholder="Task title" required>
+          <input type="date" id="taskDate" required>
+          <input type="time" id="taskTime" required>
+          <select id="taskPriority" title="Priority">
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="taskOnline"> Online?</label>
+          <input type="text" id="taskUrl" placeholder="Meeting URL (optional)">
+          <button class="btn" type="submit">Add</button>
+        </form>
+        <div id="taskList" style="margin-top:12px;max-height:320px;overflow:auto"></div>
+      </section>
+
+      <!-- Right: Exams -->
+      <section class="card">
+        <strong>Exam Timetable</strong>
+        <form id="examForm" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <input type="text" id="examSubject" placeholder="Subject" required>
+          <input type="date" id="examDate" required>
+          <input type="time" id="examStart" required>
+          <input type="time" id="examEnd" required>
+          <input type="text" id="examVenue" placeholder="Venue (or 'Online')">
+          <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="examOnline"> Online?</label>
+          <input type="text" id="examUrl" placeholder="Meeting URL (optional)">
+          <button class="btn" type="submit">Add Exam</button>
+        </form>
+        <div id="examList" style="margin-top:12px;max-height:300px;overflow:auto"></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const TASKS_KEY = 'sp_tasks_v3';
+    const EXAMS_KEY = 'sp_exams_v3';
+    let tasks = JSON.parse(localStorage.getItem(TASKS_KEY)) || [];
+    let exams = JSON.parse(localStorage.getItem(EXAMS_KEY)) || [];
+
+    const taskForm = document.getElementById('taskForm');
+    const examForm = document.getElementById('examForm');
+    const taskListEl = document.getElementById('taskList');
+    const examListEl = document.getElementById('examList');
+
+    function save() {
+      localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+      localStorage.setItem(EXAMS_KEY, JSON.stringify(exams));
+    }
+
+    function renderTasks() {
+      taskListEl.innerHTML = "";
+      tasks.forEach((t,i)=>{
+        let div = document.createElement("div");
+        div.className = `task priority-${t.priority}`;
+        div.innerHTML = `
+          <span><b>${t.title}</b> - ${t.date} ${t.time}
+            ${t.online ? `<span class="online-flag">Online</span>` : ""}
+          </span>
+          <span class="actions">
+            <button onclick="deleteTask(${i})">❌</button>
+          </span>
+        `;
+        taskListEl.appendChild(div);
+      });
+    }
+
+    function renderExams() {
+      examListEl.innerHTML = "";
+      exams.forEach((e,i)=>{
+        let div = document.createElement("div");
+        div.className = "exam";
+        div.innerHTML = `
+          <span><b>${e.subject}</b> - ${e.date} ${e.start}-${e.end} at ${e.venue}
+            ${e.online ? `<span class="online-flag">Online</span>` : ""}
+          </span>
+          <span class="actions">
+            <button onclick="deleteExam(${i})">❌</button>
+          </span>
+        `;
+        examListEl.appendChild(div);
+      });
+    }
+
+    taskForm.addEventListener("submit", e=>{
+      e.preventDefault();
+      const t = {
+        title: taskForm.taskTitle.value,
+        date: taskForm.taskDate.value,
+        time: taskForm.taskTime.value,
+        priority: taskForm.taskPriority.value,
+        online: taskForm.taskOnline.checked,
+        url: taskForm.taskUrl.value
+      };
+      tasks.push(t);
+      save(); renderTasks();
+      taskForm.reset();
+    });
+
+    examForm.addEventListener("submit", e=>{
+      e.preventDefault();
+      const ex = {
+        subject: examForm.examSubject.value,
+        date: examForm.examDate.value,
+        start: examForm.examStart.value,
+        end: examForm.examEnd.value,
+        venue: examForm.examVenue.value,
+        online: examForm.examOnline.checked,
+        url: examForm.examUrl.value
+      };
+      exams.push(ex);
+      save(); renderExams();
+      examForm.reset();
+    });
+
+    function deleteTask(i){ tasks.splice(i,1); save(); renderTasks(); }
+    function deleteExam(i){ exams.splice(i,1); save(); renderExams(); }
+
+    renderTasks();
+    renderExams();
+  </script>
+</body>
+</html>
