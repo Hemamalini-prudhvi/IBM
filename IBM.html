@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>📘 Study Planner App</title>
+  <style>
+    body {
+      margin: 0; padding: 20px;
+      display: flex; justify-content: center;
+      font-family: "Segoe UI", Arial, sans-serif;
+      transition: background 0.8s ease-in-out;
+    }
+    .container {
+      width: 100%; max-width: 900px;
+      padding: 20px; border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+      background: white; color: #333;
+    }
+    h1, h2 { text-align: center; }
+    form { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+    input, select, button {
+      padding: 10px; border-radius: 8px;
+      border: 1px solid #ddd; font-size: 14px;
+    }
+    input[type="text"], input[type="url"] { flex: 2; }
+    input[type="date"], input[type="time"], select { flex: 1; }
+    button { cursor: pointer; transition: 0.3s; }
+    .task {
+      padding: 10px; margin-bottom: 8px;
+      border-radius: 8px; display: flex;
+      justify-content: space-between; align-items: center;
+      border-left: 6px solid #2ecc71; background: #fdfdfd;
+    }
+    .done span { text-decoration: line-through; color: gray; }
+    .priority-high { border-left-color: #e74c3c; }
+    .priority-medium { border-left-color: #f39c12; }
+    .priority-low { border-left-color: #2ecc71; }
+    .actions button {
+      background: none; border: none; cursor: pointer;
+      margin-left: 5px; font-size: 16px;
+    }
+    .progress-container {
+      background: #eee; border-radius: 10px;
+      height: 15px; overflow: hidden; margin: 15px 0;
+    }
+    .progress-bar {
+      height: 100%; background: #4CAF50;
+      width: 0%; transition: width 0.4s;
+    }
+    .tabs { display: flex; gap: 10px; margin-bottom: 10px; }
+    .tabs button {
+      flex: 1; padding: 10px;
+      border: none; border-radius: 8px;
+      cursor: pointer; background: #eee;
+    }
+    .tabs button.active { background: #4CAF50; color: white; }
+    canvas { max-width: 100%; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container" id="container">
+    <h1>📘 Study Planner + Exam Timetable</h1>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button id="tabTasks" class="active">Tasks</button>
+      <button id="tabExams">Exams</button>
+      <button id="tabCalendar">Calendar</button>
+      <button id="tabProgress">Progress</button>
+    </div>
+
+    <!-- Task Form -->
+    <form id="taskForm">
+      <input type="text" id="titleInput" placeholder="Task/Assignment/Project..." required>
+      <input type="text" id="subjectInput" placeholder="Subject (Math, Physics...)" required>
+      <input type="date" id="dateInput" required>
+      <input type="time" id="timeInput" required>
+      <select id="priorityInput">
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+      <select id="reminderInput">
+        <option value="5">5 min before</option>
+        <option value="10">10 min before</option>
+        <option value="30">30 min before</option>
+        <option value="60">1 hour before</option>
+      </select>
+      <input type="url" id="linkInput" placeholder="Class link (optional)">
+      <button type="submit">➕ Add</button>
+    </form>
+
+    <!-- Progress Bar -->
+    <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
+
+    <!-- Sections -->
+    <div id="taskList"></div>
+    <div id="examList" style="display:none;"></div>
+    <div id="calendarView" style="display:none;"><p>📅 Calendar view (daily/weekly/monthly) coming soon!</p></div>
+    <div id="progressView" style="display:none;">
+      <canvas id="progressChart"></canvas>
+    </div>
+
+    <!-- Buttons -->
+    <button id="clearAllBtn" style="margin-top:10px; width:100%; background:#e74c3c; color:white;">🗑️ Clear All</button>
+    <button id="themeBtn" style="margin-top:10px; width:100%;">🎨 Change Theme</button>
+  </div>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script>
+    const STORAGE_KEY = "tasks";
+    let tasks = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+
+    // 🌈 Themes
+    const themes = [
+      { bg: "linear-gradient(135deg,#74ebd5,#ACB6E5)", card: "white", text: "#333" },
+      { bg: "linear-gradient(135deg,#232526,#414345)", card: "#2c2c2c", text: "#f1f1f1" },
+      { bg: "linear-gradient(135deg,#ff9a9e,#fad0c4)", card: "#fff0f5", text: "#444" },
+      { bg: "linear-gradient(135deg,#a1c4fd,#c2e9fb)", card: "#f0faff", text: "#222" }
+    ];
+    let themeIndex = 0;
+
+    const container = document.getElementById("container");
+    const body = document.body;
+    const themeBtn = document.getElementById("themeBtn");
+    const progressBar = document.getElementById("progressBar");
+
+    function applyTheme() {
+      const t = themes[themeIndex];
+      body.style.background = t.bg;
+      container.style.background = t.card;
+      container.style.color = t.text;
+      themeBtn.innerText = "🎨 Theme (" + (themeIndex+1) + "/" + themes.length + ")";
+    }
+    themeBtn.addEventListener("click", () => { themeIndex = (themeIndex+1)%themes.length; applyTheme(); });
+    applyTheme();
+
+    function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); }
+
+    function updateProgress() {
+      if (tasks.length === 0) { progressBar.style.width = "0%"; return; }
+      const doneCount = tasks.filter(t => t.done).length;
+      const percent = Math.round((doneCount/tasks.length)*100);
+      progressBar.style.width = percent + "%";
+    }
+
+    function render() {
+      const list = document.getElementById("taskList");
+      const exams = document.getElementById("examList");
+      list.innerHTML = ""; exams.innerHTML = "";
+
+      if (tasks.length === 0) {
+        list.innerHTML = "<p style='text-align:center;color:#666;'>No tasks yet.</p>";
+        updateProgress(); return;
+      }
+
+      tasks.forEach((t,i) => {
+        const div = document.createElement("div");
+        div.className = `task ${t.done?"done":""} priority-${t.priority}`;
+        let linkHTML = t.link ? `<a href="${t.link}" target="_blank">🔗 Join</a>` : "";
+        div.innerHTML = `
+          <span><b>${t.subject}</b>: ${t.title} — ${t.date} ${t.time}
+          <small>[${t.priority}, remind ${t.reminder}m]</small> ${linkHTML}</span>
+          <div class="actions">
+            <button onclick="toggleDone(${i})">✔</button>
+            <button onclick="del(${i})">✖</button>
+          </div>`;
+        if (t.type==="exam") exams.appendChild(div);
+        else list.appendChild(div);
+      });
+      updateProgress();
+      updateChart();
+    }
+
+    function toggleDone(i){ tasks[i].done=!tasks[i].done; save(); render(); }
+    function del(i){ tasks.splice(i,1); save(); render(); }
+
+    document.getElementById("taskForm").addEventListener("submit",e=>{
+      e.preventDefault();
+      const title=document.getElementById("titleInput").value.trim();
+      const subject=document.getElementById("subjectInput").value.trim();
+      const date=document.getElementById("dateInput").value;
+      const time=document.getElementById("timeInput").value;
+      const priority=document.getElementById("priorityInput").value;
+      const reminder=parseInt(document.getElementById("reminderInput").value);
+      const link=document.getElementById("linkInput").value.trim();
+      if(!title||!date||!time) return;
+      let isExam=title.toLowerCase().includes("exam");
+      tasks.push({title,subject,date,time,priority,reminder,link:link||"",done:false,reminded:false,type:isExam?"exam":"task"});
+      save(); render(); e.target.reset();
+    });
+
+    // Notifications
+    function notify(msg, link){
+      if(Notification.permission==="granted"){
+        let n=new Notification("Study Planner",{body:msg});
+        if(link){ n.onclick=()=>window.open(link,"_blank"); }
+      } else alert(msg);
+    }
+    if(Notification && Notification.permission!=="granted") Notification.requestPermission();
+
+    setInterval(()=>{
+      const now=new Date();
+      tasks.forEach((t,i)=>{
+        if(t.done||t.reminded) return;
+        const taskTime=new Date(`${t.date}T${t.time}`);
+        const diff=taskTime-now;
+        if(diff>0 && diff<=t.reminder*60000){
+          notify(`⏰ Reminder: "${t.title}" at ${t.time}`,t.link);
+          tasks[i].reminded=true; save();
+        }
+      });
+    },60000);
+
+    // Tabs
+    function switchTab(tab){
+      document.getElementById("taskList").style.display=tab==="tasks"?"block":"none";
+      document.getElementById("examList").style.display=tab==="exams"?"block":"none";
+      document.getElementById("calendarView").style.display=tab==="calendar"?"block":"none";
+      document.getElementById("progressView").style.display=tab==="progress"?"block":"none";
+      document.querySelectorAll(".tabs button").forEach(b=>b.classList.remove("active"));
+      document.getElementById("tab"+tab.charAt(0).toUpperCase()+tab.slice(1)).classList.add("active");
+    }
+    document.getElementById("tabTasks").onclick=()=>switchTab("tasks");
+    document.getElementById("tabExams").onclick=()=>switchTab("exams");
+    document.getElementById("tabCalendar").onclick=()=>switchTab("calendar");
+    document.getElementById("tabProgress").onclick=()=>switchTab("progress");
+
+    // 📊 Progress Chart
+    let chart;
+    function updateChart(){
+      const ctx=document.getElementById("progressChart").getContext("2d");
+      const subjects={};
+      tasks.forEach(t=>{
+        if(!subjects[t.subject]) subjects[t.subject]={done:0,total:0};
+        subjects[t.subject].total++;
+        if(t.done) subjects[t.subject].done++;
+      });
+      const labels=Object.keys(subjects);
+      const data=labels.map(s=>Math.round((subjects[s].done/subjects[s].total)*100));
+      if(chart) chart.destroy();
+      chart=new Chart(ctx,{type:"bar",data:{labels,datasets:[{label:"% Completed",data,backgroundColor:"#4CAF50"}]},options:{scales:{y:{beginAtZero:true,max:100}}}});
+    }
+
+    document.getElementById("clearAllBtn").addEventListener("click",()=>{
+      if(confirm("Delete all tasks?")){tasks=[];save();render();}
+    });
+
+    render();
+  </script>
+</body>
+</html>
